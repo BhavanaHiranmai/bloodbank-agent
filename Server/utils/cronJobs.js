@@ -4,8 +4,8 @@ const UserModel = require("../models/user");
 const Notification = require("../models/Notification");
 const BloodRequest = require("../models/BloodRequest");
 const DonationHistory = require("../models/DonationHistory");
+const { sendEmail } = require("../controllers/auth");
 const { awardPoints } = require("../controllers/loyaltyController");
-const { transporter } = require("../controllers/auth");
 const { findNearbyDonors } = require("../controllers/bloodRequestController");
 const { emitToUser } = require("./realtime");
 
@@ -39,17 +39,13 @@ cron.schedule("0 8 * * *", async () => {
         message,
       });
 
-      if (group.hospital.email && (process.env.EMAIL_USER || process.env.SMTP_USER)) {
-        transporter
-          .sendMail({
-            from:
-              process.env.SMTP_FROM ||
-              `"BloodLink" <${process.env.EMAIL_USER || process.env.SMTP_USER}>`,
-            to: group.hospital.email,
-            subject: "BloodLink expiry alert",
-            text: message,
-          })
-          .catch(() => {});
+      if (group.hospital.email) {
+        sendEmail({
+          to: group.hospital.email,
+          subject: "BloodLink expiry alert",
+          text: message,
+          html: `<div><h2>Blood Stock Expiry Alert</h2><p>${message}</p></div>`,
+        }).catch(() => {});
       }
     }
 
@@ -147,3 +143,15 @@ cron.schedule("*/30 * * * *", async () => {
     console.error("Escalation cron failed:", err.message);
   }
 });
+
+// ── Daily AI Inventory Forecast & Shortage Surveillance (06:00 AM) ───────────
+cron.schedule("0 6 * * *", async () => {
+  try {
+    const { runForecastAnalysis } = require("../agents/forecastAgent");
+    const result = await runForecastAnalysis();
+    console.log(`[AI Forecast Agent] Daily surveillance complete. ${result.flags.length} forecast flags generated.`);
+  } catch (err) {
+    console.error("[AI Forecast Agent] Daily cron execution failed:", err.message);
+  }
+});
+

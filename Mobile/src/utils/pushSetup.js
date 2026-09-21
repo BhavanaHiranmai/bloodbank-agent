@@ -155,8 +155,12 @@ function addNotificationResponseListener(callback) {
 }
 
 function removeNotificationSubscription(subscription) {
-  if (!Notifications?.removeNotificationSubscription || !subscription) return;
-  Notifications.removeNotificationSubscription(subscription);
+  if (!subscription) return;
+  if (typeof subscription.remove === "function") {
+    subscription.remove();
+  } else if (Notifications?.removeNotificationSubscription) {
+    Notifications.removeNotificationSubscription(subscription);
+  }
 }
 
 export {

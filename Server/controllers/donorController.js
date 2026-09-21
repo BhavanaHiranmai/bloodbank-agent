@@ -144,3 +144,49 @@ exports.countDonors = async (req, res) => {
     });
   }
 };
+
+exports.addDeviceToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Token is required",
+      });
+    }
+
+    if (req.user.role !== "donor") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Donors only.",
+      });
+    }
+
+    const user = await UserModel.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    if (!user.deviceTokens) {
+      user.deviceTokens = [];
+    }
+
+    if (!user.deviceTokens.includes(token)) {
+      user.deviceTokens.push(token);
+      await user.save();
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Device token registered successfully",
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Error registering device token",
+    });
+  }
+};

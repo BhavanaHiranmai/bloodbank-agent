@@ -42,17 +42,20 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   choice: {
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderRadius: theme.radius.button,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "#FFF0F2", // soft pink backdrop
+    borderWidth: 1,
+    borderColor: "#FAD9DD",
     marginRight: 8,
   },
   choiceActive: {
     backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
   },
   choiceText: {
-    color: theme.colors.muted,
+    color: theme.colors.primary, // Red text
     fontWeight: "800",
     fontSize: 14,
   },

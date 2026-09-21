@@ -1,11 +1,12 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Shell } from "../../components/common/Shell";
 import { Card } from "../../components/common/Card";
 import { Stat } from "../../components/common/Stat";
 import { useAppContext, BLOOD_GROUPS } from "../../context/AppContext";
 import { useLoader } from "../../utils/useLoader";
 import { theme } from "../../styles/theme";
+import { MaterialCommunityIcons, FontAwesome5 } from "@expo/vector-icons";
 
 export function HospitalDashboard({ tabs }) {
   const ctx = useAppContext();
@@ -34,6 +35,49 @@ export function HospitalDashboard({ tabs }) {
   const openReqCount = data.requests.filter((r) => r.status === "open").length;
   const fulfilledReqCount = data.requests.filter((r) => r.status === "fulfilled").length;
 
+  const quickActions = [
+    {
+      label: "Inventory",
+      icon: <FontAwesome5 name="warehouse" size={24} color={theme.colors.primary} />,
+      route: "hospital:inventory",
+    },
+    {
+      label: "Raise Request",
+      icon: <MaterialCommunityIcons name="water-plus" size={28} color={theme.colors.primary} />,
+      route: "hospital:raise",
+    },
+    {
+      label: "Requests Log",
+      icon: <FontAwesome5 name="clipboard-list" size={24} color={theme.colors.primary} />,
+      route: "hospital:requests",
+    },
+    {
+      label: "Donor Search",
+      icon: <FontAwesome5 name="search" size={24} color={theme.colors.primary} />,
+      route: "hospital:donorSearch",
+    },
+    {
+      label: "Appointments",
+      icon: <FontAwesome5 name="calendar-alt" size={24} color={theme.colors.primary} />,
+      route: "hospital:appointments",
+    },
+    {
+      label: "Expiry Alerts",
+      icon: <FontAwesome5 name="exclamation-triangle" size={24} color={theme.colors.primary} />,
+      route: "hospital:expiry",
+    },
+    {
+      label: "Notifications",
+      icon: <FontAwesome5 name="bell" size={24} color={theme.colors.primary} />,
+      route: "hospital:notifications",
+    },
+    {
+      label: "Profile",
+      icon: <FontAwesome5 name="user-alt" size={24} color={theme.colors.primary} />,
+      route: "hospital:profile",
+    },
+  ];
+
   return (
     <Shell title="Hospital dashboard" tabs={tabs} loading={loading}>
       {ctx.user?.isActive === false ? (
@@ -58,6 +102,22 @@ export function HospitalDashboard({ tabs }) {
         <Stat label="Fulfilled" value={fulfilledReqCount} />
         <Stat label="Expiry Alerts" value={data.expiry.length} />
       </View>
+
+      <Text style={styles.sectionTitle}>Quick Actions</Text>
+      <View style={styles.actionGrid}>
+        {quickActions.map((item, index) => (
+          <Pressable
+            key={index}
+            style={styles.actionItem}
+            onPress={() => ctx.setRoute(item.route)}
+          >
+            <View style={styles.actionCircle}>
+              {item.icon}
+            </View>
+            <Text style={styles.actionLabel}>{item.label}</Text>
+          </Pressable>
+        ))}
+      </View>
     </Shell>
   );
 }
@@ -81,6 +141,40 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 14,
     lineHeight: 20,
+  },
+  actionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    paddingHorizontal: 4,
+    marginTop: 10,
+  },
+  actionItem: {
+    width: "48%",
+    alignItems: "center",
+    marginVertical: 12,
+  },
+  actionCircle: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 2,
+    borderColor: "#FAD9DD",
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 3,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+  },
+  actionLabel: {
+    marginTop: 8,
+    fontSize: 13,
+    fontWeight: "800",
+    color: theme.colors.textSub,
+    textAlign: "center",
   },
 });
 export default HospitalDashboard;

@@ -101,6 +101,7 @@ const userSchema = new mongoose.Schema(
     resetPasswordExpire: Date,
     profilePhoto: String,
     expoPushToken: String,
+    deviceTokens: [{ type: String }],
   },
   {
     timestamps: true,

@@ -1,7 +1,12 @@
-import React from "react";
-import { SafeAreaView, View, Text, Modal, StyleSheet } from "react-native";
+import "./src/styles/themeEngine";
+import React, { useEffect, useRef } from "react";
+import { View, Text, Modal, StyleSheet, Animated, Vibration, Platform } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { AppProvider, useAppContext } from "./src/context/AppContext";
 import { theme } from "./src/styles/theme";
+import * as Notifications from "expo-notifications";
+import "./app/tasks/sosTask";
+import { SOSAlarmModal } from "./src/components/SOSAlarmModal";
 
 // Common layout/card elements
 import { LoadingOverlay } from "./src/components/common/LoadingOverlay";
@@ -46,6 +51,7 @@ import { ReportsScreen } from "./src/screens/admin/ReportsScreen";
 
 // Chat Screen
 import { ChatScreen } from "./src/screens/chat/ChatScreen";
+import { ChatsListScreen } from "./src/screens/chat/ChatsListScreen";
 
 const donorTabs = [
   ["Dashboard", "donor:dashboard"],
@@ -86,12 +92,59 @@ function AppInner() {
   const {
     user,
     route,
+    setRoute,
     loading,
     booting,
     activeSos,
     setActiveSos,
-    respondToSos
+    respondToSos,
+    sosAlarmVisible,
+    setSosAlarmVisible,
+    sosAlarmData
   } = useAppContext();
+
+  // Pulse animation for critical alarms
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const isCritical = activeSos && activeSos.data?.urgency === "critical";
+    if (isCritical) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: false,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 0,
+            duration: 600,
+            useNativeDriver: false,
+          }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.setValue(0);
+    }
+  }, [activeSos, pulseAnim]);
+
+  // Tap listener for background SOS alerts
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data;
+      if (data && (data.type === "sos_alert" || data.urgency === "critical")) {
+        setActiveSos({
+          title: "🚨 BLOOD NEEDED URGENTLY",
+          message: `${data.bloodGroup || ""} blood needed nearby — Tap to respond`,
+          data: data,
+        });
+        setRoute("donor:nearby");
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [setActiveSos, setRoute]);
 
   if (booting) {
     return (
@@ -126,6 +179,7 @@ function AppInner() {
       else if (route === "donor:badges") content = <BadgesScreen tabs={donorTabs} />;
       else if (route === "donor:notifications") content = <NotificationsScreen tabs={donorTabs} />;
       else if (route === "donor:nearby") content = <NearbyRequestsScreen tabs={donorTabs} />;
+      else if (route === "donor:chats") content = <ChatsListScreen tabs={donorTabs} />;
       else if (route === "donor:sos") content = <RaiseRequestScreen tabs={donorTabs} donorSos />;
       else content = <DonorDashboard tabs={donorTabs} />;
     } else if (user.role === "hospital") {
@@ -148,6 +202,8 @@ function AppInner() {
         content = <HospitalProfile tabs={hospitalTabs} />;
       } else if (route === "hospital:notifications") {
         content = <NotificationsScreen tabs={hospitalTabs} />;
+      } else if (route === "hospital:chats") {
+        content = <ChatsListScreen tabs={hospitalTabs} />;
       } else {
         content = <HospitalDashboard tabs={hospitalTabs} />;
       }
@@ -172,47 +228,153 @@ function AppInner() {
       {activeSos ? (
         <Modal visible transparent animationType="fade">
           <View style={styles.modalShade}>
-            <View style={styles.modalCard}>
-              <Text style={styles.eyebrow}>Emergency SOS nearby</Text>
-              <Text style={styles.cardTitle}>{activeSos.title}</Text>
-              <Text style={styles.body}>{activeSos.message}</Text>
-              <Text style={styles.body}>
-                {activeSos.data?.bloodGroup} |{" "}
-                {activeSos.data?.distance || "Distance pending"}
-              </Text>
-              <View style={styles.row}>
-                <Button
-                  label="Accept"
-                  onPress={() => respondToSos("accept")}
-                  style={styles.modalBtn}
-                />
-                <Button
-                  label="Decline"
-                  tone="outline"
-                  onPress={() => respondToSos("decline")}
-                  style={styles.modalBtn}
-                />
-                <Button
-                  label="Dismiss"
-                  tone="ghost"
-                  onPress={() => setActiveSos(null)}
-                  style={styles.modalBtn}
-                  textStyle={styles.dismissText}
-                />
-              </View>
-            </View>
+            {(() => {
+              const isAlarm = activeSos.data?.urgency === "critical";
+              const alarmBg = pulseAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ["#DC2626", "#7F1D1D"],
+              });
+
+              return (
+                <Animated.View
+                  style={[
+                    styles.modalCard,
+                    isAlarm
+                      ? {
+                          backgroundColor: alarmBg,
+                          borderColor: "#EF4444",
+                          borderWidth: 3,
+                        }
+                      : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.eyebrow,
+                      isAlarm
+                        ? {
+                            color: "#FFF",
+                            opacity: 0.9,
+                            fontSize: 13,
+                            letterSpacing: 1,
+                          }
+                        : null,
+                    ]}
+                  >
+                    {isAlarm ? "🚨 SOS EMERGENCY ALERT 🚨" : "Emergency SOS nearby"}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.cardTitle,
+                      isAlarm ? { color: "#FFF", fontSize: 22, fontWeight: "900" } : null,
+                    ]}
+                  >
+                    {activeSos.title}
+                  </Text>
+                  <Text style={[styles.body, isAlarm ? { color: "#FFF", fontSize: 16 } : null]}>
+                    {activeSos.message}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.body,
+                      isAlarm ? { color: "#FFF", fontWeight: "900", fontSize: 18 } : null,
+                    ]}
+                  >
+                    Blood Group: {activeSos.data?.bloodGroup} |{" "}
+                    {activeSos.data?.distance || "Distance pending"}
+                  </Text>
+                  <View style={styles.row}>
+                    <Button
+                      label="Accept"
+                      onPress={() => respondToSos("accept")}
+                      style={[
+                        styles.modalBtn,
+                        isAlarm
+                          ? {
+                              backgroundColor: "#FFF",
+                              borderColor: "#FFF",
+                            }
+                          : null,
+                      ]}
+                      textStyle={
+                        isAlarm
+                          ? {
+                              color: "#B81531",
+                              fontWeight: "900",
+                              fontSize: 16,
+                            }
+                          : null
+                      }
+                    />
+                    <Button
+                      label="Decline"
+                      tone={isAlarm ? "ghost" : "outline"}
+                      onPress={() => respondToSos("decline")}
+                      style={[
+                        styles.modalBtn,
+                        isAlarm
+                          ? {
+                              backgroundColor: "rgba(255,255,255,0.2)",
+                              borderColor: "rgba(255,255,255,0.2)",
+                            }
+                          : null,
+                      ]}
+                      textStyle={isAlarm ? { color: "#FFF", fontWeight: "700" } : null}
+                    />
+                    <Button
+                      label="Dismiss"
+                      tone="ghost"
+                      onPress={() => setActiveSos(null)}
+                      style={styles.modalBtn}
+                      textStyle={[
+                        styles.dismissText,
+                        isAlarm ? { color: "rgba(255,255,255,0.7)" } : null,
+                      ]}
+                    />
+                  </View>
+                </Animated.View>
+              );
+            })()}
           </View>
         </Modal>
       ) : null}
+
+      <SOSAlarmModal
+        visible={sosAlarmVisible}
+        requestData={sosAlarmData}
+        onClose={() => setSosAlarmVisible(false)}
+      />
     </SafeAreaView>
   );
 }
 
 export default function App() {
+  useEffect(() => {
+    // Register notification channel for SOS alerts
+    if (Platform.OS === "android") {
+      Notifications.setNotificationChannelAsync("sos_channel", {
+        name: "SOS Blood Alerts",
+        importance: Notifications.AndroidImportance.MAX,
+        sound: "sos_alarm.mp3",
+        vibrationPattern: [0, 500, 200, 500],
+        enableVibrate: true,
+        bypassDnd: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      }).catch((err) => console.log("[App] Failed to set notification channel:", err.message));
+    }
+
+    // Register background task async
+    Notifications.registerTaskAsync("SOS_BACKGROUND_HANDLER")
+      .then(() => console.log("[App] SOS Background task registered successfully"))
+      .catch((err) => console.log("[App] Failed to register background task:", err.message));
+  }, []);
+
   return (
-    <AppProvider>
-      <AppInner />
-    </AppProvider>
+    <SafeAreaProvider>
+      <AppProvider>
+        <AppInner />
+      </AppProvider>
+    </SafeAreaProvider>
   );
 }
 

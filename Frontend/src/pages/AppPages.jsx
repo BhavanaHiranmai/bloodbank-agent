@@ -11,6 +11,7 @@ import {
   CalendarPlus,
   CalendarDays,
   CheckCircle,
+  ClipboardCheck,
   Clock,
   Download,
   Droplet,
@@ -29,8 +30,10 @@ import {
   Search as SearchIcon,
   Send,
   ShieldCheck,
+  Sparkles,
   Stethoscope,
   Trash2,
+  TrendingUp,
   Users,
   X,
   XCircle,
@@ -51,6 +54,8 @@ import {
 import DashboardLayout from '../components/common/DashboardLayout';
 import BloodGroupBadge from '../components/common/BloodGroupBadge';
 import { SmallSpinner } from '../components/common/LoadingSpinner';
+import AgentTracePanel from '../components/common/AgentTracePanel';
+import AgentTag from '../components/common/AgentTag';
 import api from '../api/axios';
 import { useAuth } from '../context/authStore';
 import { useSocket } from '../context/SocketContext';
@@ -1013,6 +1018,11 @@ export const RaiseRequest = () => {
   const [form, setForm] = useState({ bloodGroup: 'O+', urgency: 'normal', unitsNeeded: 1, radiusKm: 10, notes: '' });
   const [requestingLocation, setRequestingLocation] = useState(false);
   const [activeRequest, setActiveRequest] = useState(null);
+  const [agentSteps, setAgentSteps] = useState({
+    intake: { status: 'idle', reasoning: '' },
+    matching: { status: 'idle', reasoning: '' },
+    outreach: { status: 'idle', reasoning: '' },
+  });
   const coords = user?.location?.coordinates;
   const hasLocation = coords?.length >= 2;
   const { data: count, reload, loading } = useApi(async () => {
@@ -1027,6 +1037,34 @@ export const RaiseRequest = () => {
     });
     return response.data.data.count;
   }, [form.bloodGroup, form.radiusKm, coords?.join(',')]);
+
+  useEffect(() => {
+    if (!socket) return undefined;
+    const handleStep = (data) => {
+      if (data?.agent && ['intake', 'matching', 'outreach'].includes(data.agent)) {
+        setAgentSteps((prev) => ({
+          ...prev,
+          [data.agent]: {
+            status: data.status || 'done',
+            reasoning: data.reasoning || prev[data.agent]?.reasoning || '',
+          },
+        }));
+      }
+    };
+    const handleComplete = () => {
+      setAgentSteps((prev) => ({
+        intake: { ...prev.intake, status: 'done' },
+        matching: { ...prev.matching, status: 'done' },
+        outreach: { ...prev.outreach, status: 'done' },
+      }));
+    };
+    socket.on('agent:step', handleStep);
+    socket.on('agent:complete', handleComplete);
+    return () => {
+      socket.off('agent:step', handleStep);
+      socket.off('agent:complete', handleComplete);
+    };
+  }, [socket]);
 
   const updateLocation = () => {
     if (!navigator.geolocation) {
@@ -1104,6 +1142,16 @@ export const RaiseRequest = () => {
       } else {
         toast.error('SOS created, but no eligible nearby donors matched this blood group and radius.');
       }
+      if (socket && data.data?.request?._id) {
+        socket.emit('request:join', { requestId: data.data.request._id });
+      }
+      if (data.data?.request) {
+        setAgentSteps((prev) => ({
+          intake: { status: 'done', reasoning: prev.intake.reasoning || `Clinical urgency classified as ${data.data.request.urgency || 'normal'}. Search radius set to ${data.data.request.radiusKm || 10}km.` },
+          matching: { status: 'done', reasoning: prev.matching.reasoning || `Matched ${data.data.notifiedDonors || 0} donors using 2dsphere proximity & reliability scoring.` },
+          outreach: { status: 'done', reasoning: prev.outreach.reasoning || `Dispatched Wave 1 alerts across Socket.IO, Push, and Email to ${data.data.notifiedDonors || 0} candidates.` },
+        }));
+      }
       setActiveRequest(data.data.request);
       reload();
     } catch (err) {
@@ -1148,29 +1196,157 @@ export const RaiseRequest = () => {
         </div>
       )}
       <div className="request-console">
-        <div className="request-console__panel">
-          <p className="text-sm font-black uppercase tracking-wide text-slate-500">Blood group</p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-4">{BLOOD_GROUPS.map((group) => <button type="button" key={group} className={form.bloodGroup === group ? 'blood-chip is-selected' : 'blood-chip'} onClick={() => setForm({ ...form, bloodGroup: group })}>{group}</button>)}</div>
-          <p className="mt-6 text-sm font-black uppercase tracking-wide text-slate-500">Urgency</p>
-          <div className="mt-3 grid gap-3 md:grid-cols-3">{['normal', 'urgent', 'critical'].map((urgency) => <button type="button" key={urgency} className={form.urgency === urgency ? 'dispatch-option is-selected' : 'dispatch-option'} onClick={() => setForm({ ...form, urgency })}>{urgency}</button>)}</div>
-        </div>
-        <div className="request-console__panel">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Units needed"><input className="input-field input-field-lg" type="number" min="1" value={form.unitsNeeded} onChange={(e) => setForm({ ...form, unitsNeeded: e.target.value })} /></Field>
-            <Field label={`Radius: ${form.radiusKm} km`}><input className="range-field" type="range" min="5" max="50" value={form.radiusKm} onChange={(e) => setForm({ ...form, radiusKm: e.target.value })} /></Field>
-          </div>
-          <Field label="Request notes"><textarea className="input-field min-h-28" placeholder="Patient, ward, timing or contact instructions" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
-          <div className="dispatch-summary">
-            <div>
-              <p className="text-sm font-bold text-slate-500">Matching eligible donors</p>
-              <p className="text-3xl font-black text-red-700">{count || 0}</p>
-              <p className="mt-1 text-sm font-bold text-slate-600">{count || 0} eligible donors found in this area</p>
-              {count === 0 && Number(form.radiusKm) < 50 && <p className="mt-1 text-sm text-amber-700">No eligible donors found. Try increasing the radius.</p>}
-              {count === 0 && Number(form.radiusKm) >= 50 && <p className="mt-1 text-sm text-red-700">No eligible donors found at max radius. Contact hospitals directly.</p>}
+        {/* Left Panel: Clinical Intake Agent */}
+        <div className="request-console__panel border border-slate-200/80 rounded-2xl bg-white p-5 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3 mb-4">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 font-bold">
+                <ClipboardCheck size={16} />
+              </div>
+              <div>
+                <h3 className="text-sm font-black tracking-tight text-slate-900">Clinical Intake Agent</h3>
+                <p className="text-[11px] text-slate-500 font-medium">Triage, Clinical Notes & Urgency Classification</p>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <button className="btn-primary" onClick={submit} disabled={requestingLocation}><Droplet size={16} /> {requestingLocation ? 'Updating Location...' : isDonorSos ? 'Raise Emergency SOS' : 'Request Blood'}</button>
-              {isDonorSos && activeRequest?.status === 'open' && <button className="btn-outline" type="button" onClick={cancelRequest}><XCircle size={16} /> Cancel Request</button>}
+            <AgentTag
+              agentName="Clinical Intake"
+              status={agentSteps.intake.status}
+              reasoning={agentSteps.intake.reasoning}
+            />
+          </div>
+
+          <p className="text-xs font-black uppercase tracking-wider text-slate-500">Blood Group</p>
+          <div className="mt-2.5 grid gap-2.5 sm:grid-cols-4">
+            {BLOOD_GROUPS.map((group) => (
+              <button
+                type="button"
+                key={group}
+                className={form.bloodGroup === group ? 'blood-chip is-selected' : 'blood-chip'}
+                onClick={() => setForm({ ...form, bloodGroup: group })}
+              >
+                {group}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-5">
+            <p className="text-xs font-black uppercase tracking-wider text-slate-500">Urgency Level</p>
+            <div className="mt-2.5 grid gap-2.5 md:grid-cols-3">
+              {['normal', 'urgent', 'critical'].map((urgency) => (
+                <button
+                  type="button"
+                  key={urgency}
+                  className={form.urgency === urgency ? 'dispatch-option is-selected' : 'dispatch-option'}
+                  onClick={() => setForm({ ...form, urgency })}
+                >
+                  {urgency}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <Field label="Clinical Notes / Diagnosis (Analyzed by Intake Agent)">
+              <textarea
+                className="input-field min-h-24"
+                placeholder="Patient condition, emergency notes, ICU/surgery requirements..."
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              />
+            </Field>
+          </div>
+        </div>
+
+        {/* Right Panel: Geospatial Matching & Outreach Dispatch Agents */}
+        <div className="request-console__panel flex flex-col justify-between border border-slate-200/80 rounded-2xl bg-white p-5 shadow-xs">
+          <div>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-100 text-blue-700 font-bold">
+                  <SearchIcon size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black tracking-tight text-slate-900">Geospatial Matching Agent</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">2dsphere Geolocation & Composite Ranking</p>
+                </div>
+              </div>
+              <AgentTag
+                agentName="Geospatial Matching"
+                status={agentSteps.matching.status}
+                reasoning={agentSteps.matching.reasoning}
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Units Needed">
+                <input
+                  className="input-field input-field-lg"
+                  type="number"
+                  min="1"
+                  value={form.unitsNeeded}
+                  onChange={(e) => setForm({ ...form, unitsNeeded: e.target.value })}
+                />
+              </Field>
+              <Field label={`Search Perimeter: ${form.radiusKm} km`}>
+                <input
+                  className="range-field"
+                  type="range"
+                  min="5"
+                  max="50"
+                  value={form.radiusKm}
+                  onChange={(e) => setForm({ ...form, radiusKm: e.target.value })}
+                />
+              </Field>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/60 pb-3 mb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-100 text-amber-800 font-bold">
+                  <Send size={13} />
+                </div>
+                <p className="text-xs font-black uppercase tracking-wider text-slate-800">
+                  Outreach Dispatch Agent
+                </p>
+              </div>
+              <AgentTag
+                agentName="Outreach Dispatch"
+                status={agentSteps.outreach.status}
+                reasoning={agentSteps.outreach.reasoning}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase text-slate-500">Matching Eligible Donors</p>
+                <div className="flex items-baseline gap-2">
+                  <p className="text-3xl font-black text-red-700">{count || 0}</p>
+                  <span className="text-xs font-medium text-slate-500">scored in radius</span>
+                </div>
+                {count === 0 && Number(form.radiusKm) < 50 && (
+                  <p className="mt-1 text-xs text-amber-700 font-medium">No donors found. Increase search radius.</p>
+                )}
+                {count === 0 && Number(form.radiusKm) >= 50 && (
+                  <p className="mt-1 text-xs text-red-700 font-medium">No eligible donors found at 50km radius.</p>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-primary" onClick={submit} disabled={requestingLocation}>
+                  <Droplet size={16} />{' '}
+                  {requestingLocation
+                    ? 'Updating Location...'
+                    : isDonorSos
+                      ? 'Dispatch SOS (Outreach Agent)'
+                      : 'Dispatch Blood Request (Outreach Agent)'}
+                </button>
+                {isDonorSos && activeRequest?.status === 'open' && (
+                  <button className="btn-outline" type="button" onClick={cancelRequest}>
+                    <XCircle size={16} /> Cancel Request
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1404,6 +1580,7 @@ export const ChatPage = () => {
 const RequestsList = ({ admin = false }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [selectedTraceId, setSelectedTraceId] = useState(null);
   const endpoint = admin ? '/admin/requests' : '/blood-requests';
   const { data, reload, loading } = useApi(async () => (await api.get(endpoint)).data, []);
   const rows = admin ? data?.data || [] : data?.data || [];
@@ -1419,12 +1596,62 @@ const RequestsList = ({ admin = false }) => {
   };
   return (
     <DashboardLayout title={admin ? 'Requests Log' : 'Request Status'} loading={loading}>
-      <PageTable headers={['Hospital', 'Blood', 'Units', 'Urgency', 'Status', 'Notified', 'Date', 'Actions']} rows={rows.filter(Boolean).map((item, index) => {
-        const acceptedDonor = item.acceptedDonor || item.respondingDonors?.find((entry) => entry.action === 'accept')?.donor;
-        const canOpenChat = Boolean(!admin && item._id && acceptedDonor);
-        const canFulfill = Boolean(!admin && item.status === 'responding' && item._id);
-        return <tr key={item._id || `request-${index}`}><td>{item.requestedBy?.firstName}</td><td><BloodGroupBadge group={item.bloodGroup} size="sm" /></td><td>{item.unitsNeeded}</td><td><span className={`badge-pill ${urgencyClass(item.urgency)}`}>{item.urgency}</span></td><td><span className={`badge-pill ${statusClass(item.status)}`}>{item.status}</span></td><td>{item.notifiedDonors?.length || 0}</td><td>{fmtDate(item.createdAt)}</td><td><div className="flex gap-2">{canOpenChat && <button className="btn-outline" onClick={() => navigate(`/${user?.role || 'hospital'}/chat/${item._id}`)}><MessageCircle size={16} /> Chat</button>}{canFulfill && <button className="btn-outline" onClick={() => setStatus(item._id, 'fulfilled')}><CheckCircle size={16} /> Mark Fulfilled</button>}</div></td></tr>;
-      })} />
+      <PageTable
+        headers={['Hospital', 'Blood', 'Units', 'Urgency', 'Status', 'Notified', 'Date', 'Actions']}
+        rows={rows.filter(Boolean).map((item, index) => {
+          const acceptedDonor = item.acceptedDonor || item.respondingDonors?.find((entry) => entry.action === 'accept')?.donor;
+          const canOpenChat = Boolean(!admin && item._id && acceptedDonor);
+          const canFulfill = Boolean(!admin && item.status === 'responding' && item._id);
+          const isTraceOpen = selectedTraceId === item._id;
+          return (
+            <tr key={item._id || `request-${index}`}>
+              <td>{item.requestedBy?.firstName}</td>
+              <td><BloodGroupBadge group={item.bloodGroup} size="sm" /></td>
+              <td>{item.unitsNeeded}</td>
+              <td><span className={`badge-pill ${urgencyClass(item.urgency)}`}>{item.urgency}</span></td>
+              <td>
+                <div className="flex flex-col items-start gap-1">
+                  <span className={`badge-pill ${statusClass(item.status)}`}>{item.status}</span>
+                  <AgentTag
+                    agentName="LangGraph Coordinator"
+                    status="done"
+                    reasoning={item.finalDecision || `Coordinated dispatch: Matched & alerted ${item.notifiedDonors?.length || 0} donors across ${item.radiusKm || 10}km perimeter.`}
+                  />
+                </div>
+              </td>
+              <td>{item.notifiedDonors?.length || 0}</td>
+              <td>{fmtDate(item.createdAt)}</td>
+              <td>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className={`btn-outline ${isTraceOpen ? 'border-[#C0392B] bg-red-50 text-[#C0392B]' : ''}`}
+                    onClick={() => setSelectedTraceId(isTraceOpen ? null : item._id)}
+                  >
+                    <Sparkles size={14} className="text-[#C0392B]" />
+                    {isTraceOpen ? 'Hide AI Trace' : 'AI Trace'}
+                  </button>
+                  {canOpenChat && (
+                    <button className="btn-outline" onClick={() => navigate(`/${user?.role || 'hospital'}/chat/${item._id}`)}>
+                      <MessageCircle size={16} /> Chat
+                    </button>
+                  )}
+                  {canFulfill && (
+                    <button className="btn-outline" onClick={() => setStatus(item._id, 'fulfilled')}>
+                      <CheckCircle size={16} /> Mark Fulfilled
+                    </button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      />
+      {selectedTraceId && (
+        <div className="mt-6">
+          <AgentTracePanel requestId={selectedTraceId} onClose={() => setSelectedTraceId(null)} />
+        </div>
+      )}
     </DashboardLayout>
   );
 };
@@ -1563,27 +1790,49 @@ export const HospitalProfile = () => {
 export const AdminDashboard = () => {
   const navigate = useNavigate();
   const { data, loading } = useApi(async () => {
-    const [stats, analytics, inventory, pending] = await Promise.all([api.get('/admin/stats'), api.get('/admin/analytics'), api.get('/admin/inventory'), api.get('/admin/users?role=hospital&limit=5')]);
-    return { stats: stats.data.data, analytics: analytics.data.data, inventory: inventory.data.data, pending: pending.data.data.filter((u) => !u.isApproved) };
+    const [stats, analytics, inventory, pending, forecast] = await Promise.all([
+      api.get('/admin/stats'),
+      api.get('/admin/analytics'),
+      api.get('/admin/inventory'),
+      api.get('/admin/users?role=hospital&limit=5'),
+      api.get('/admin/forecast').catch(() => ({ data: { data: { flags: [] } } })),
+    ]);
+    return {
+      stats: stats.data.data,
+      analytics: analytics.data.data,
+      inventory: inventory.data.data,
+      pending: pending.data.data.filter((u) => !u.isApproved),
+      forecast: forecast.data?.data,
+    };
   }, []);
   return (
     <DashboardLayout title="Admin Dashboard" loading={loading}>
       {data && (
         <>
           <div className="page-grid">{['totalUsers', 'totalDonors', 'totalHospitals', 'totalBloodUnits', 'requestsToday', 'fulfilledToday', 'pendingHospitalApprovals'].map((key) => <StatCard key={key} label={key} value={data?.stats?.[key]} />)}</div>
-          {data?.inventory?.critical?.length > 0 && (
-            <div className="card mt-5 border-red-200 bg-red-50">
-              <h2 className="text-lg font-black text-red-800">Critical shortages</h2>
+
+          <div className="card mt-5 border-slate-200 bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-base font-black text-slate-900">Critical shortages</h2>
+              <AgentTag
+                agentName="Inventory Forecast Agent"
+                status="done"
+                reasoning={data?.forecast?.reasoning || (data?.forecast?.flags || []).join('. ') || 'Autonomous regional supply surveillance active. Daily 06:00 AM inventory analysis.'}
+              />
+            </div>
+            {data?.inventory?.critical?.length > 0 ? (
               <div className="mt-3 grid gap-3">
                 {(data.inventory.critical || []).map((item) => (
-                  <div key={item.bloodGroup} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-100 bg-white p-3">
+                  <div key={item.bloodGroup} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-100 bg-red-50/60 p-3">
                     <div><BloodGroupBadge group={item.bloodGroup} size="sm" /><p className="mt-1 text-sm text-slate-600">{item.totalUnits || 0} units available</p></div>
                     <button className="btn-outline" onClick={() => navigate('/admin/broadcast', { state: { bloodGroup: item.bloodGroup } })}><Megaphone size={16} /> Broadcast Alert</button>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="mt-2 text-sm text-slate-500">All blood groups currently maintain sufficient network reserves.</p>
+            )}
+          </div>
           <div className="mt-5 grid gap-5 lg:grid-cols-2"><Chart title="Donations By Month" data={data?.analytics?.donationsByMonth?.map((i) => ({ name: `${i._id.month}/${i._id.year}`, value: i.count })) || []} /><PieBox title="Blood Group Distribution" data={data?.analytics?.bloodGroupDistribution?.map((i) => ({ name: i._id, value: i.count })) || []} /></div>
         </>
       )}

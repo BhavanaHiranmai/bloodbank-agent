@@ -34,8 +34,18 @@ const initRealtime = (server) => {
   io.on("connection", (socket) => {
     socket.join(userRoom(socket.user._id));
 
-    socket.on("request:join", (requestId) => {
-      if (requestId) socket.join(requestRoom(requestId));
+    socket.on("request:join", (data) => {
+      const requestId = typeof data === "object" && data !== null ? data.requestId : data;
+      if (requestId) {
+        socket.join(requestRoom(requestId));
+      }
+    });
+
+    socket.on("request:leave", (data) => {
+      const requestId = typeof data === "object" && data !== null ? data.requestId : data;
+      if (requestId) {
+        socket.leave(requestRoom(requestId));
+      }
     });
 
     socket.on("disconnect", () => {});
@@ -52,8 +62,11 @@ const emitToRequest = (requestId, event, payload) => {
   if (io && requestId) io.to(requestRoom(requestId)).emit(event, payload);
 };
 
+const getIO = () => io;
+
 module.exports = {
   initRealtime,
   emitToUser,
   emitToRequest,
+  getIO,
 };

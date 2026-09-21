@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { Alert, Platform } from "react-native";
+import { Alert, Platform, BackHandler, Vibration } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { io } from "socket.io-client";
 import * as Notifications from "expo-notifications";
 import { registerForPushNotifications, unregisterPushToken } from "../utils/pushSetup";
+import { theme } from "../styles/theme";
 
 const AppContext = createContext();
 
@@ -16,7 +17,7 @@ const envUrl = process.env.EXPO_PUBLIC_API_URL;
 export const API_BASE =
   envUrl && envUrl.trim().length > 0
     ? envUrl.trim().replace(/\/$/, "")
-    : "http://172.20.10.3:3000/api";
+    : "http://172.20.10.6:3000/api";
 
 // Socket URL is the root (strip /api suffix)
 export const SOCKET_URL = API_BASE.replace(/\/api\/?$/, "");
@@ -46,12 +47,111 @@ export const useForm = (initial) => {
 export function AppProvider({ children }) {
   const [token, setToken] = useState("");
   const [user, setUser] = useState(null);
-  const [route, setRoute] = useState("home");
+  const [route, setRouteState] = useState("home");
+  const [routeHistory, setRouteHistory] = useState([]);
+  const [sageMode, setSageMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [booting, setBooting] = useState(true);
   const [activeSos, setActiveSos] = useState(null);
+  const [sosAlarmVisible, setSosAlarmVisible] = useState(false);
+  const [sosAlarmData, setSosAlarmData] = useState(null);
   const [eligibilityTick, setEligibilityTick] = useState(0);
   const [donationTick, setDonationTick] = useState(0);
+
+  const setRoute = useCallback((newRoute) => {
+    setRouteState((current) => {
+      const resolved = typeof newRoute === "function" ? newRoute(current) : newRoute;
+      if (resolved !== current) {
+        setRouteHistory((prev) => {
+          // Do not push duplicates to history
+          if (prev[prev.length - 1] === current) {
+            return prev;
+          }
+          return [...prev, current];
+        });
+      }
+      return resolved;
+    });
+  }, []);
+
+  const goBack = useCallback(() => {
+    let handled = false;
+    setRouteHistory((prev) => {
+      if (prev.length === 0) return prev;
+      const copy = [...prev];
+      const previousRoute = copy.pop();
+      setRouteState(previousRoute);
+      handled = true;
+      return copy;
+    });
+    return handled;
+  }, []);
+
+  const canGoBack = routeHistory.length > 0;
+
+  // Load sage mode from storage
+  useEffect(() => {
+    AsyncStorage.getItem("bloodlink_sage_mode").then((saved) => {
+      if (saved === "true") {
+        setSageMode(true);
+      }
+    });
+  }, []);
+
+  const toggleSageMode = useCallback((val) => {
+    const newVal = typeof val === "boolean" ? val : !sageMode;
+    setSageMode(newVal);
+    AsyncStorage.setItem("bloodlink_sage_mode", newVal ? "true" : "false");
+  }, [sageMode]);
+
+  // Synchronize sage mode with global.sageModeActive and theme.colors
+  useEffect(() => {
+    global.sageModeActive = sageMode;
+    if (sageMode) {
+      theme.colors.primary = "#5A8264";
+      theme.colors.primaryDark = "#436049";
+      theme.colors.accent = "#5A8264";
+      theme.colors.bg = "#F3F7F4";
+      theme.colors.surfaceTint = "#E6EFEA";
+      theme.colors.border = "#DCE5DD";
+      theme.colors.borderLight = "#EBF1EC";
+      theme.colors.bubbleMine = "#E6EFEA";
+      theme.colors.skeletonB = "#E6EFEA";
+      theme.colors.avatarBg = "#D0E1D4";
+    } else {
+      theme.colors.primary = "#E21E42";
+      theme.colors.primaryDark = "#B81531";
+      theme.colors.accent = "#E21E42";
+      theme.colors.bg = "#FFF5F6";
+      theme.colors.surfaceTint = "#FFF0F2";
+      theme.colors.border = "#FAD9DD";
+      theme.colors.borderLight = "#FCE8EB";
+      theme.colors.bubbleMine = "#FFF0F2";
+      theme.colors.skeletonB = "#FFF0F2";
+      theme.colors.avatarBg = "#FEE2E2";
+    }
+  }, [sageMode]);
+
+  // Clear route history on user status change
+  useEffect(() => {
+    setRouteHistory([]);
+  }, [user?.role, user?._id]);
+
+  // BackHandler setup
+  useEffect(() => {
+    const handleBackPress = () => {
+      if (routeHistory.length > 0) {
+        goBack();
+        return true; // prevent default (app exit)
+      }
+      return false; // let default happen (app exit)
+    };
+
+    const subscription = BackHandler.addEventListener("hardwareBackPress", handleBackPress);
+    return () => {
+      subscription.remove();
+    };
+  }, [routeHistory, goBack]);
   // Connection status: 'unknown' | 'connected' | 'disconnected'
   const [serverStatus, setServerStatus] = useState("unknown");
   const [socketConnected, setSocketConnected] = useState(false);
@@ -154,7 +254,33 @@ export function AppProvider({ children }) {
   // ── Push notification registration ──────────────────────────────────────────
   useEffect(() => {
     if (!token || booting || !user) return;
-    registerForPushNotifications(token);
+    registerForPushNotifications(token, API_BASE);
+
+    if (user.role === "donor") {
+      (async () => {
+        try {
+          const { status } = await Notifications.requestPermissionsAsync({
+            ios: { allowCriticalAlerts: true },
+          });
+          if (status === "granted") {
+            const fcmToken = await Notifications.getDevicePushTokenAsync();
+            if (fcmToken?.data) {
+              await fetch(`${API_BASE}/donors/device-token`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ token: fcmToken.data }),
+              });
+              console.log("[FCM] Device token registered with backend successfully");
+            }
+          }
+        } catch (err) {
+          console.warn("[FCM] Device token registration failed:", err.message);
+        }
+      })();
+    }
   }, [token, booting, user]);
 
   // ── Handle notification taps → deep-link to correct screen ────────────────
@@ -169,9 +295,7 @@ export function AppProvider({ children }) {
 
     return () => {
       if (notificationResponseListener.current) {
-        Notifications.removeNotificationSubscription(
-          notificationResponseListener.current
-        );
+        notificationResponseListener.current.remove();
       }
     };
   }, []);
@@ -253,26 +377,45 @@ export function AppProvider({ children }) {
     };
 
     socket.on("blood-request:new", (notification) => {
+      const isCritical = notification?.data?.urgency === "critical";
+
       if (user?.role === "donor" && !notification?.data?.closed) {
-        clearSosAlertTimer();
-        setActiveSos(notification);
-        sosAlertTimer.current = setTimeout(() => {
+        if (isCritical) {
+          setSosAlarmData(notification);
+          setSosAlarmVisible(true);
+        } else {
           clearSosAlertTimer();
-          setActiveSos((current) =>
-            String(current?.data?.requestId) ===
-            String(notification?.data?.requestId)
-              ? null
-              : current
-          );
-        }, SOS_ALERT_DURATION_MS);
+          setActiveSos(notification);
+          sosAlertTimer.current = setTimeout(() => {
+            clearSosAlertTimer();
+            setActiveSos((current) =>
+              String(current?.data?.requestId) ===
+              String(notification?.data?.requestId)
+                ? null
+                : current
+            );
+          }, SOS_ALERT_DURATION_MS);
+        }
       }
-      Alert.alert(
-        "Blood request",
-        notification?.message || "A nearby request needs help."
-      );
+      // SOS alerts use the custom full-screen alarm modal, bypass standard popup
+      if (!isCritical) {
+        Alert.alert(
+          "Blood request",
+          notification?.message || "A nearby request needs help."
+        );
+      }
     });
 
     socket.on("blood-request:closed", (payload = {}) => {
+      setSosAlarmData((current) => {
+        const currentId = current?.data?.requestId || current?.requestId;
+        if (String(currentId) === String(payload.requestId)) {
+          setSosAlarmVisible(false);
+          return null;
+        }
+        return current;
+      });
+
       clearSosAlertTimer();
       setActiveSos((current) =>
         String(current?.data?.requestId) === String(payload.requestId)
@@ -326,6 +469,51 @@ export function AppProvider({ children }) {
       setSocketConnected(false);
     };
   }, [token, user?.role]);
+
+  // ── Alarm Vibration & Sound Loop ─────────────────────────────────────────────
+  const soundRef = useRef(null);
+
+  useEffect(() => {
+    const isCritical = activeSos && activeSos.data?.urgency === "critical";
+
+    if (isCritical) {
+      // 1. Loop alarm vibration
+      Vibration.vibrate([1000, 800, 1000, 800], true);
+
+      // 2. Loop alarm sound
+      let soundInstance = null;
+      (async () => {
+        try {
+          const { Audio } = require("expo-av");
+          await Audio.setAudioModeAsync({
+            playsInSilentModeIOS: true,
+            staysActiveInBackground: false,
+            shouldRouteThroughEarpieceAndroid: false,
+          });
+
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: "https://assets.mixkit.co/active_storage/sfx/951/951-84.wav" },
+            { shouldPlay: true, isLooping: true, volume: 1.0 }
+          );
+          soundInstance = sound;
+          soundRef.current = sound;
+        } catch (err) {
+          console.warn("[Alarm Sound] Error:", err.message);
+        }
+      })();
+    }
+
+    return () => {
+      Vibration.cancel();
+      if (soundRef.current) {
+        const soundToStop = soundRef.current;
+        soundRef.current = null;
+        soundToStop.stopAsync()
+          .then(() => soundToStop.unloadAsync())
+          .catch((err) => console.log("[Alarm Clean] Error:", err.message));
+      }
+    };
+  }, [activeSos]);
 
   // ── Auth actions ─────────────────────────────────────────────────────────────
   const login = async (email, password) => {
@@ -440,9 +628,17 @@ export function AppProvider({ children }) {
       serverStatus,
       socketConnected,
       apiBase: API_BASE,
+      goBack,
+      canGoBack,
+      sageMode,
+      toggleSageMode,
+      sosAlarmVisible,
+      setSosAlarmVisible,
+      sosAlarmData,
+      setSosAlarmData,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [api, user, route, eligibilityTick, donationTick, loading, booting, activeSos, serverStatus, socketConnected]
+    [api, user, route, eligibilityTick, donationTick, loading, booting, activeSos, serverStatus, socketConnected, goBack, canGoBack, sageMode, toggleSageMode, sosAlarmVisible, sosAlarmData]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

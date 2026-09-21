@@ -4,6 +4,7 @@ import { Shell } from "../../components/common/Shell";
 import { Card } from "../../components/common/Card";
 import { Input } from "../../components/common/Input";
 import { Button } from "../../components/common/Button";
+import { Toggle } from "../../components/common/Toggle";
 import { useAppContext, useForm } from "../../context/AppContext";
 
 export function SettingsScreen({ tabs }) {
@@ -38,6 +39,11 @@ export function SettingsScreen({ tabs }) {
           value={form.escalation}
           onChangeText={(v) => setField("escalation", v)}
           keyboardType="numeric"
+        />
+        <Toggle
+          label="Sage Mode"
+          value={ctx.sageMode}
+          onChange={ctx.toggleSageMode}
         />
         <Button label="Save Config" onPress={save} />
       </Card>

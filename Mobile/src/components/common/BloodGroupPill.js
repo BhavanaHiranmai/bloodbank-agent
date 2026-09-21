@@ -12,13 +12,17 @@ export function BloodGroupPill({ group }) {
 
 const styles = StyleSheet.create({
   bloodPill: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.radius.round,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    backgroundColor: "#FFE8EC", // Soft pink badge background
+    borderRadius: theme.radius.pill, // Fully rounded
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#FAD9DD",
   },
   bloodPillText: {
-    color: "#FFFFFF",
+    color: theme.colors.primary, // Vibrant red text
     fontWeight: "900",
     fontSize: 14,
   },

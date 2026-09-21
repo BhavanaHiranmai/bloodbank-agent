@@ -4,7 +4,9 @@ const UserModel = require("../models/user");
 const Notification = require("../models/Notification");
 const PushSubscription = require("../models/PushSubscription");
 const ChatConversation = require("../models/ChatConversation");
-const { transporter } = require("./auth");
+const AgentTrace = require("../models/AgentTrace");
+const { runCoordinatorGraph } = require("../agents/coordinatorAgent");
+const { sendEmail } = require("./auth");
 const { emitToRequest, emitToUser } = require("../utils/realtime");
 const { sendPushNotification } = require("../utils/webPush");
 const { sendExpoPushToUsers } = require("../utils/expoPush");
@@ -113,10 +115,6 @@ exports.createRequest = async (req, res) => {
       });
     }
 
-    const donors = (await findNearbyDonors(bloodGroup, coordinates, requestedRadius, [req.user._id])).filter(
-      (donor) => donor?._id && donor.location?.coordinates?.length >= 2,
-    );
-
     const request = await BloodRequest.create({
       requestedBy: req.user._id,
       bloodGroup,
@@ -125,153 +123,34 @@ exports.createRequest = async (req, res) => {
       notes,
       location: { type: "Point", coordinates },
       radiusKm: requestedRadius,
-      notifiedDonors: donors.map((donor) => donor._id),
+      notifiedDonors: [],
     });
 
-    const distances = await getDistanceInfo(
-      coordinates,
-      donors.map((donor) => donor.location.coordinates),
-    );
-    const rankedDonors = rankDonorsByShortestPath(coordinates, donors, distances);
-
-    const notifications = await Notification.insertMany(
-      rankedDonors.map(({ donor, routing }, index) => {
-        const distanceKm = roundKm(haversineKm(coordinates, donor.location.coordinates));
-        return {
-        recipient: donor._id,
-        type: "blood_request",
-        title: `${urgency === "critical" ? "SOS: " : ""}${bloodGroup} blood needed`,
-        message: `${req.user.firstName} needs ${requestedUnits} unit(s). Distance: ${distanceKm} km`,
-        data: {
-          requestId: request._id,
-          urgency,
-          bloodGroup,
-          compatibleBloodGroups: compatibleDonorGroupsFor(bloodGroup),
-          distance: routing.distance,
-          duration: routing.duration,
-          distanceKm,
-          rank: index + 1,
-          routingAlgorithm: routing.algorithm,
-        },
-        };
-      }),
-    );
-
-    notifications.forEach((notification) => {
-      if (notification?.recipient) emitToUser(notification.recipient, "blood-request:new", notification);
+    // ── Multi-Agent AI Orchestration Layer ─────────────────────────────────
+    const coordinatorResult = await runCoordinatorGraph({
+      requestId: request._id,
+      bloodGroup,
+      unitsNeeded: requestedUnits,
+      urgency,
+      notes,
+      location: { type: "Point", coordinates },
+      radiusKm: requestedRadius,
+      requesterUser: req.user,
     });
 
-    // ── Expo Push to all notified donors ──────────────────────────────────────
-    const donorIdsForPush = rankedDonors.map(({ donor }) => donor._id);
-    sendExpoPushToUsers(donorIdsForPush, {
-      title: `🩸 ${urgency === "critical" ? "SOS: " : ""}${bloodGroup} blood needed`,
-      body: `${req.user.firstName} needs ${requestedUnits} unit(s). Open BloodLink to respond.`,
-      data: { screen: "donor:nearby", requestId: String(request._id) },
-      channelId: urgency === "critical" ? "bloodlink-sos" : "bloodlink-default",
-      priority: "high",
-      sound: "default",
-    });
-
-    if (process.env.VAPID_PUBLIC_KEY) {
-      const donorIds = rankedDonors.map(({ donor }) => donor._id);
-      const distanceByDonor = new Map(
-        rankedDonors.map(({ donor }) => [
-          String(donor._id),
-          roundKm(haversineKm(coordinates, donor.location.coordinates)),
-        ]),
-      );
-
-      PushSubscription.find({ user: { $in: donorIds } })
-        .then((subscriptions) =>
-          Promise.all(
-            subscriptions.map(async (pushSubscription) => {
-              try {
-                const distanceKm = distanceByDonor.get(String(pushSubscription.user)) ?? "N/A";
-                await sendPushNotification(pushSubscription.subscription, {
-                  title: `🩸 ${urgency === "critical" ? "SOS: " : ""}${bloodGroup} blood needed`,
-                  body: `${distanceKm} km from you. Tap to respond.`,
-                  url: "/donor/notifications",
-                  urgency,
-                  bloodGroup,
-                  requestId: String(request._id),
-                });
-              } catch (err) {
-                if (err?.expired) {
-                  await PushSubscription.deleteOne({ _id: pushSubscription._id });
-                }
-              }
-            }),
-          ),
-        )
-        .catch(() => {});
-    }
-
-    for (const { donor, routing } of rankedDonors) {
-      if (donor.email && (process.env.EMAIL_USER || process.env.SMTP_USER)) {
-        const distanceKm = roundKm(haversineKm(coordinates, donor.location.coordinates));
-        const requesterName = getDisplayName(req.user);
-        const requesterType = req.user.role === "hospital" ? "Hospital/requester" : "Donor requester";
-        const locationText = `${coordinates[1]}, ${coordinates[0]}`;
-        const mapsLink = `https://www.google.com/maps/search/?api=1&query=${coordinates[1]},${coordinates[0]}`;
-        const notesText = notes?.trim() || "No extra notes provided.";
-
-        transporter
-          .sendMail({
-            from:
-              process.env.SMTP_FROM ||
-              `"BloodLink" <${process.env.EMAIL_USER || process.env.SMTP_USER}>`,
-            to: donor.email,
-            subject: `${urgency === "critical" ? "SOS: " : ""}${bloodGroup} blood needed - ${distanceKm} km away`,
-            text: [
-              `${bloodGroup} blood is needed through BloodLink.`,
-              "",
-              `Requester: ${requesterName}`,
-              `Requester type: ${requesterType}`,
-              `Phone: ${req.user.phoneNumber || "Not shared"}`,
-              `City: ${req.user.city || "Not shared"}`,
-              `Units needed: ${requestedUnits}`,
-              `Urgency: ${urgency}`,
-              `Distance: ${distanceKm} km`,
-              `Route estimate: ${routing.distance || "N/A"}${routing.duration ? `, ${routing.duration}` : ""}`,
-              `Request location: ${locationText}`,
-              `Map: ${mapsLink}`,
-              `Notes: ${notesText}`,
-              "",
-              "Open BloodLink to accept or decline this request.",
-            ].join("\n"),
-            html: `
-              <div style="font-family:Arial,sans-serif;line-height:1.5;color:#1f2937">
-                <h2 style="color:#c0392b;margin-bottom:8px">${escapeHtml(bloodGroup)} blood needed</h2>
-                <p>A BloodLink requester near you needs help.</p>
-                <table cellpadding="6" cellspacing="0" style="border-collapse:collapse">
-                  <tr><td><strong>Requester</strong></td><td>${escapeHtml(requesterName)}</td></tr>
-                  <tr><td><strong>Requester type</strong></td><td>${escapeHtml(requesterType)}</td></tr>
-                  <tr><td><strong>Phone</strong></td><td>${escapeHtml(req.user.phoneNumber || "Not shared")}</td></tr>
-                  <tr><td><strong>City</strong></td><td>${escapeHtml(req.user.city || "Not shared")}</td></tr>
-                  <tr><td><strong>Blood group</strong></td><td>${escapeHtml(bloodGroup)}</td></tr>
-                  <tr><td><strong>Units needed</strong></td><td>${requestedUnits}</td></tr>
-                  <tr><td><strong>Urgency</strong></td><td>${escapeHtml(urgency)}</td></tr>
-                  <tr><td><strong>Distance</strong></td><td>${distanceKm} km</td></tr>
-                  <tr><td><strong>Route estimate</strong></td><td>${escapeHtml(routing.distance || "N/A")}${routing.duration ? `, ${escapeHtml(routing.duration)}` : ""}</td></tr>
-                  <tr><td><strong>Location</strong></td><td>${escapeHtml(locationText)}</td></tr>
-                  <tr><td><strong>Notes</strong></td><td>${escapeHtml(notesText)}</td></tr>
-                </table>
-                <p><a href="${mapsLink}" style="color:#c0392b">View request location on map</a></p>
-                <p>Please open BloodLink to accept or decline this request.</p>
-              </div>
-            `,
-          })
-          .catch(() => {});
-      }
-    }
+    // Reload request document with updated notifiedDonors and fields
+    const updatedRequest = await BloodRequest.findById(request._id);
 
     return res.status(201).json({
       success: true,
       data: {
-        request,
-        notifiedDonors: donors.length,
+        request: updatedRequest || request,
+        notifiedDonors: coordinatorResult.notifiedDonorsCount || updatedRequest?.notifiedDonors?.length || 0,
         eligibleBloodGroups: compatibleDonorGroupsFor(bloodGroup),
-        matchingAlgorithm: rankedDonors[0]?.routing.algorithm || "none",
+        matchingAlgorithm:
+          coordinatorResult.rankedDonors?.[0]?.routing?.algorithm || "multi-factor-agent-scoring",
+        traceId: coordinatorResult.traceId,
+        finalDecision: coordinatorResult.finalDecision,
       },
       message: "Blood request created",
     });
@@ -279,6 +158,27 @@ exports.createRequest = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: err.message || "Error creating blood request",
+    });
+  }
+};
+
+exports.getAgentTrace = async (req, res) => {
+  try {
+    const trace = await AgentTrace.findOne({ request: req.params.id }).sort({ createdAt: -1 });
+    if (!trace) {
+      return res.status(404).json({
+        success: false,
+        message: "No trace found.",
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      data: trace,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Error fetching agent trace",
     });
   }
 };
@@ -316,19 +216,13 @@ exports.respondToRequest = async (req, res) => {
       });
     }
 
-    let request = await BloodRequest.findById(req.params.id || req.params.requestId);
-
-    if (!request) {
-      return res.status(404).json({
-        success: false,
-        message: "Blood request not found",
-      });
-    }
+    const requestId = req.params.id || req.params.requestId;
+    let request;
 
     if (action === "accept") {
       const claimedRequest = await BloodRequest.findOneAndUpdate(
         {
-          _id: request._id,
+          _id: requestId,
           status: "open",
           acceptedDonor: null,
         },
@@ -337,13 +231,28 @@ exports.respondToRequest = async (req, res) => {
       );
 
       if (!claimedRequest) {
+        const exists = await BloodRequest.exists({ _id: requestId });
+        if (!exists) {
+          return res.status(404).json({
+            success: false,
+            message: "Blood request not found",
+          });
+        }
         return res.status(409).json({
           success: false,
           message: "This request has already been accepted by another donor.",
         });
       }
-
       request = claimedRequest;
+    } else {
+      request = await BloodRequest.findById(requestId);
+
+      if (!request) {
+        return res.status(404).json({
+          success: false,
+          message: "Blood request not found",
+        });
+      }
     }
 
     request.respondingDonors = request.respondingDonors.filter(

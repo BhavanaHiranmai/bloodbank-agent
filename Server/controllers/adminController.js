@@ -3,7 +3,7 @@ const BloodInventory = require("../models/BloodInventory");
 const BloodRequest = require("../models/BloodRequest");
 const DonationHistory = require("../models/DonationHistory");
 const Notification = require("../models/Notification");
-const { transporter } = require("./auth");
+const { sendEmail } = require("./auth");
 
 const getPagination = (query) => {
   const page = Math.max(Number(query.page) || 1, 1);
@@ -113,17 +113,13 @@ exports.approveUser = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    if (user.email && (process.env.EMAIL_USER || process.env.SMTP_USER)) {
-      transporter
-        .sendMail({
-          from:
-            process.env.SMTP_FROM ||
-            `"BloodLink" <${process.env.EMAIL_USER || process.env.SMTP_USER}>`,
-          to: user.email,
-          subject: "BloodLink account approved",
-          text: "Your BloodLink hospital account has been approved.",
-        })
-        .catch(() => {});
+    if (user.email) {
+      sendEmail({
+        to: user.email,
+        subject: "BloodLink account approved",
+        text: "Your BloodLink hospital account has been approved.",
+        html: `<div><h2>Congratulations!</h2><p>Your BloodLink hospital account has been approved.</p></div>`,
+      }).catch(() => {});
     }
 
     return res.status(200).json({
@@ -326,3 +322,32 @@ exports.broadcastNotification = async (req, res) => {
     });
   }
 };
+
+exports.getForecastFlags = async (req, res) => {
+  try {
+    const { runForecastAnalysis, getLatestSystemForecast } = require("../agents/forecastAgent");
+    let forecast = getLatestSystemForecast();
+
+    // If cache is empty or older than 30 minutes, refresh
+    if (!forecast?.flags?.length || Date.now() - new Date(forecast.analyzedAt).getTime() > 30 * 60 * 1000) {
+      const result = await runForecastAnalysis();
+      forecast = {
+        flags: result.flags,
+        reasoning: result.reasoning,
+        analyzedAt: new Date(),
+        breakdown: result.inventory || [],
+      };
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: forecast,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Error fetching AI forecast flags",
+    });
+  }
+};
+

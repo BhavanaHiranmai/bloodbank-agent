@@ -13,6 +13,9 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
+    "@langchain/core": "^1.2.5",
+    "@langchain/langgraph": "^1.4.9",
     "axios": "^1.16.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
@@ -22,6 +25,7 @@
     "express-rate-limit": "^8.5.1",
     "express-validator": "^7.3.2",
     "exprss": "^0.0.1-security",
+    "firebase-admin": "^14.0.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.6.2",

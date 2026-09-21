@@ -7,5 +7,6 @@ const router = express.Router();
 router.get("/search", controller.searchDonors);
 router.get("/count", protect, controller.countDonors);
 router.put("/location", protect, controller.updateLocation);
+router.post("/device-token", protect, controller.addDeviceToken);
 
 module.exports = router;

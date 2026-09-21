@@ -1,15 +1,11 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Shell } from "../../components/common/Shell";
-import { Card } from "../../components/common/Card";
-import { Stat } from "../../components/common/Stat";
-import { Button } from "../../components/common/Button";
-import { List } from "../../components/common/List";
 import { DeferredBanner } from "../../components/common/DeferredBanner";
-import { NotificationCard } from "../../components/cards/NotificationCard";
-import { useAppContext, empty, fmtDate, titleCase } from "../../context/AppContext";
+import { useAppContext, empty } from "../../context/AppContext";
 import { useLoader } from "../../utils/useLoader";
 import { theme } from "../../styles/theme";
+import { MaterialCommunityIcons, FontAwesome5 } from "@expo/vector-icons";
 
 export function DonorDashboard({ tabs }) {
   const ctx = useAppContext();
@@ -30,86 +26,105 @@ export function DonorDashboard({ tabs }) {
     });
   }, [ctx.eligibilityTick, ctx.donationTick]);
 
-  const status =
-    data?.eligibility?.status ||
-    data?.eligibility?.record?.status ||
-    "not checked";
+  const menuItems = [
+    {
+      label: "Emergency SOS",
+      icon: <MaterialCommunityIcons name="alert-decagram" size={38} color={theme.colors.primary} />,
+      route: "donor:sos",
+    },
+    {
+      label: "People in Need",
+      icon: <FontAwesome5 name="hand-holding-heart" size={32} color={theme.colors.primary} />,
+      route: "donor:nearby",
+    },
+    {
+      label: "Blood Bank",
+      icon: <FontAwesome5 name="hospital" size={32} color={theme.colors.primary} />,
+      route: "donor:appointments",
+    },
+    {
+      label: "Eligibility Check",
+      icon: <FontAwesome5 name="heartbeat" size={32} color={theme.colors.primary} />,
+      route: "donor:eligibility",
+    },
+    {
+      label: "Donation History",
+      icon: <FontAwesome5 name="history" size={32} color={theme.colors.primary} />,
+      route: "donor:history",
+    },
+    {
+      label: "My Badges",
+      icon: <FontAwesome5 name="trophy" size={32} color={theme.colors.primary} />,
+      route: "donor:badges",
+    },
+    {
+      label: "Notifications",
+      icon: <FontAwesome5 name="bell" size={32} color={theme.colors.primary} />,
+      route: "donor:notifications",
+    },
+    {
+      label: "Profile",
+      icon: <FontAwesome5 name="user-alt" size={32} color={theme.colors.primary} />,
+      route: "donor:profile",
+    },
+  ];
 
   return (
-    <Shell title={`Welcome, ${ctx.user.firstName || "Donor"}`} tabs={tabs} loading={loading}>
+    <Shell title="Dashboard" tabs={tabs} loading={loading}>
       <DeferredBanner eligibility={data?.eligibility} />
-      <View style={styles.grid}>
-        <Stat label="Donations" value={data?.stats?.totalDonations || 0} />
-        <Stat label="Points" value={data?.stats?.points || 0} />
-        <Stat label="Badges" value={data?.stats?.badges?.length || 0} />
-        <Stat
-          label="Next eligible"
-          value={
-            data?.eligibility?.deferralUntil
-              ? fmtDate(data.eligibility.deferralUntil)
-              : "Now"
-          }
-        />
+      <View style={styles.gridContainer}>
+        {menuItems.map((item, index) => (
+          <Pressable
+            key={index}
+            style={styles.gridItem}
+            onPress={() => ctx.setRoute(item.route)}
+          >
+            <View style={styles.circle}>
+              {item.icon}
+            </View>
+            <Text style={styles.label}>{item.label}</Text>
+          </Pressable>
+        ))}
       </View>
-      <Card warning={status !== "eligible"} success={status === "eligible"}>
-        <Text style={styles.cardTitle}>Eligibility Status</Text>
-        <Text style={styles.body}>{titleCase(status)}</Text>
-        {data?.eligibility?.deferralReason ? (
-          <Text style={styles.deferralReason}>
-            {data.eligibility.deferralReason}
-          </Text>
-        ) : null}
-        <Button
-          label="Check eligibility"
-          onPress={() => ctx.setRoute("donor:eligibility")}
-          style={styles.checkBtn}
-        />
-      </Card>
-      
-      <Text style={styles.sectionTitle}>Recent Notifications</Text>
-      <List
-        data={(data?.notifications || []).slice(0, 3)}
-        empty="No alerts yet."
-        renderItem={(item) => <NotificationCard item={item} />}
-      />
     </Shell>
   );
 }
 
 const styles = StyleSheet.create({
-  grid: {
+  gridContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 12,
+    justifyContent: "space-between",
+    paddingHorizontal: 8,
+    marginTop: 16,
   },
-  cardTitle: {
-    fontSize: 17,
-    fontWeight: "900",
-    color: theme.colors.text,
-    marginBottom: 8,
+  gridItem: {
+    width: "48%",
+    alignItems: "center",
+    marginVertical: 16,
   },
-  body: {
-    color: theme.colors.text,
-    lineHeight: 22,
-    fontSize: 15,
-    fontWeight: "700",
-    textTransform: "capitalize",
+  circle: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 2,
+    borderColor: "#FAD9DD", // soft pink border matching custom theme
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 4,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
   },
-  deferralReason: {
-    color: theme.colors.muted,
-    fontSize: 13,
-    marginTop: 4,
-  },
-  checkBtn: {
-    marginTop: 14,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: theme.colors.text,
+  label: {
     marginTop: 10,
-    marginBottom: 8,
+    fontSize: 14,
+    fontWeight: "800",
+    color: theme.colors.textSub,
+    textAlign: "center",
   },
 });
+
 export default DonorDashboard;

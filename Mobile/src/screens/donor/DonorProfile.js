@@ -5,6 +5,7 @@ import { Card } from "../../components/common/Card";
 import { Input } from "../../components/common/Input";
 import { PickerRow } from "../../components/common/PickerRow";
 import { Button } from "../../components/common/Button";
+import { Toggle } from "../../components/common/Toggle";
 import { useAppContext, useForm, BLOOD_GROUPS } from "../../context/AppContext";
 
 export function DonorProfile({ tabs }) {
@@ -56,6 +57,11 @@ export function DonorProfile({ tabs }) {
           value={form.bloodGroup}
           options={BLOOD_GROUPS}
           onChange={(v) => setField("bloodGroup", v)}
+        />
+        <Toggle
+          label="Sage Mode"
+          value={ctx.sageMode}
+          onChange={ctx.toggleSageMode}
         />
         <Button label="Save profile" onPress={save} />
         <Button

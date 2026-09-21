@@ -4,6 +4,7 @@ import { Shell } from "../../components/common/Shell";
 import { Card } from "../../components/common/Card";
 import { Input } from "../../components/common/Input";
 import { Button } from "../../components/common/Button";
+import { Toggle } from "../../components/common/Toggle";
 import { useAppContext, useForm } from "../../context/AppContext";
 
 export function HospitalProfile({ tabs }) {
@@ -62,6 +63,11 @@ export function HospitalProfile({ tabs }) {
           value={form.address}
           onChangeText={(v) => setField("address", v)}
           multiline
+        />
+        <Toggle
+          label="Sage Mode"
+          value={ctx.sageMode}
+          onChange={ctx.toggleSageMode}
         />
         <Button label="Save Profile" onPress={save} />
       </Card>

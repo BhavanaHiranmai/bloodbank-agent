@@ -15,6 +15,7 @@ router.put("/users/:id/activate", controller.activateUser);
 router.get("/requests", controller.getAllRequests);
 router.get("/inventory", controller.getSystemInventory);
 router.get("/analytics", controller.getAnalytics);
+router.get("/forecast", controller.getForecastFlags);
 router.post("/broadcast", controller.broadcastNotification);
 
 module.exports = router;

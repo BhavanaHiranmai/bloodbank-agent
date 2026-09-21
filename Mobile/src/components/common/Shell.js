@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, ScrollView, Pressable, ActivityIndicator, StyleSheet } from "react-native";
 import { useAppContext } from "../../context/AppContext";
 import { theme } from "../../styles/theme";
+import { Ionicons } from "@expo/vector-icons";
 
 export function Shell({ title, children, tabs = [], loading = false }) {
   const ctx = useAppContext();
@@ -10,6 +11,12 @@ export function Shell({ title, children, tabs = [], loading = false }) {
     <View style={styles.screen}>
       {/* ── Top bar ───────────────────────────────────── */}
       <View style={styles.topbar}>
+        {ctx.canGoBack ? (
+          <Pressable style={styles.backBtn} onPress={ctx.goBack}>
+            <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
+          </Pressable>
+        ) : null}
+
         <View style={styles.headerLeft}>
           {/* Brand eyebrow — matches .sidebar-link branding */}
           <View style={styles.brandRow}>
@@ -22,9 +29,28 @@ export function Shell({ title, children, tabs = [], loading = false }) {
         </View>
 
         {ctx.user ? (
-          <Pressable style={styles.logoutBtn} onPress={ctx.logout}>
-            <Text style={styles.logoutText}>Logout</Text>
-          </Pressable>
+          <View style={styles.headerRight}>
+            {ctx.user.role !== "admin" ? (
+              <>
+                <Pressable
+                  style={styles.notifyBtn}
+                  onPress={() => ctx.setRoute(`${ctx.user.role}:chats`)}
+                >
+                  <Ionicons name="chatbubble-ellipses-outline" size={24} color="#FFFFFF" />
+                </Pressable>
+
+                <Pressable
+                  style={styles.notifyBtn}
+                  onPress={() => ctx.setRoute(`${ctx.user.role}:notifications`)}
+                >
+                  <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
+                </Pressable>
+              </>
+            ) : null}
+            <Pressable style={styles.logoutBtn} onPress={ctx.logout}>
+              <Text style={styles.logoutText}>Logout</Text>
+            </Pressable>
+          </View>
         ) : null}
       </View>
 
@@ -35,31 +61,7 @@ export function Shell({ title, children, tabs = [], loading = false }) {
         </View>
       ) : null}
 
-      {/* ── Tab bar (horizontal scrolling nav) ────────── */}
-      {tabs.length ? (
-        <View style={styles.tabsWrap}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tabsRow}
-          >
-            {tabs.map((tab) => {
-              const active = ctx.route === tab.route;
-              return (
-                <Pressable
-                  key={tab.route}
-                  style={[styles.tab, active && styles.tabActive]}
-                  onPress={() => ctx.setRoute(tab.route)}
-                >
-                  <Text style={[styles.tabText, active && styles.tabTextActive]}>
-                    {tab.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-      ) : null}
+
 
       {/* ── Page content ─────────────────────────────── */}
       <ScrollView
@@ -92,16 +94,20 @@ const styles = StyleSheet.create({
 
   // ── Top bar
   topbar: {
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingTop: 16,
+    paddingBottom: 16,
     paddingHorizontal: theme.spacing.base,
-    backgroundColor: theme.colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    backgroundColor: theme.colors.primary, // Solid brand red header!
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+  },
+  backBtn: {
+    paddingRight: 8,
+    paddingVertical: 8,
+    justifyContent: "center",
+    alignItems: "center",
   },
   headerLeft: {
     flex: 1,
@@ -116,29 +122,38 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 999,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: "#FFFFFF", // White brand dot
   },
   brandText: {
     ...theme.type.eyebrow,
-    color: theme.colors.primary,
+    color: "#FFFFFF", // White brand text
   },
   title: {
     ...theme.type.h2,
-    color: theme.colors.text,
+    color: "#FFFFFF", // White header title
     marginTop: 1,
   },
   logoutBtn: {
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: theme.radius.button,
+    borderRadius: 999, // Pill shape
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    ...theme.shadows.buttonOutline,
+    borderColor: "rgba(255, 255, 255, 0.3)",
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
   },
   logoutText: {
     ...theme.type.caption,
-    color: theme.colors.muted,
+    color: "#FFFFFF",
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  notifyBtn: {
+    padding: 6,
+    justifyContent: "center",
+    alignItems: "center",
   },
 
   // ── Offline banner
@@ -156,38 +171,6 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
 
-  // ── Tab bar — matches .sidebar-link.is-active from index.css
-  tabsWrap: {
-    height: 52,
-    backgroundColor: theme.colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  tabsRow: {
-    paddingHorizontal: 10,
-    alignItems: "center",
-    gap: 6,
-  },
-  tab: {
-    marginVertical: 9,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: theme.radius.tab,
-    backgroundColor: theme.colors.skeletonB,  // #F1F5F9
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  tabActive: {
-    backgroundColor: theme.colors.primary,
-    ...theme.shadows.sidebarActive,
-  },
-  tabText: {
-    ...theme.type.small,
-    color: theme.colors.muted,
-  },
-  tabTextActive: {
-    color: "#FFFFFF",
-  },
 
   // ── Content scroll
   scroll: {

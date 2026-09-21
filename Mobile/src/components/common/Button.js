@@ -64,20 +64,18 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
 
-  // ── Primary — linear-gradient(180deg, #d34b3e 0%, #B83232 100%) replicated
-  // RN doesn't support CSS gradients on View natively; we use the darker
-  // end-stop as a solid to approximate, plus the exact shadow from index.css.
+  // ── Primary
   primary: {
-    backgroundColor: theme.colors.primaryDark,  // approximates gradient
+    backgroundColor: theme.colors.primary, // Bright vibrant red
     borderColor: theme.colors.primary,
     ...theme.shadows.button,
   },
 
-  // ── Outline — matches .btn-outline
+  // ── Outline
   outline: {
     backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.border,
-    ...theme.shadows.buttonOutline,
+    borderColor: theme.colors.primary, // Red border for outline
+    borderWidth: 1.5,
   },
 
   // ── Danger — matches .btn-danger
@@ -119,7 +117,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   textWhite:    { color: "#FFFFFF" },
-  textDark:     { color: theme.colors.text },
+  textDark:     { color: theme.colors.primary }, // Red text for outline
   textPrimary:  { color: theme.colors.primary },
   textDisabled: { color: theme.colors.muted },
 });

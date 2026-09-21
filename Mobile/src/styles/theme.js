@@ -3,34 +3,34 @@
 export const theme = {
   colors: {
     // Brand
-    primary:     "#E53E3E",
-    primaryDark: "#B83232",
-    accent:      "#E53E3E",
+    primary:     "#E21E42",   // InstaBlood / RedFlow Vibrant red
+    primaryDark: "#B81531",   // Darker red for active/pressed gradients
+    accent:      "#E21E42",
 
     // Backgrounds
-    bg:          "#F5F7FB",
+    bg:          "#FFF5F6",   // Warm soft pinkish-tinted white background
     surface:     "#FFFFFF",
-    surfaceTint: "#FBFCFE",   // matches linear-gradient base on website body
+    surfaceTint: "#FFF0F2",
     darkBg:      "#1A1A2E",   // --dark-bg
     cardBg:      "#16213E",   // --card-bg
     navy:        "#1A1A2E",   // --navy
 
     // Borders / Text
-    border:      "#D9E1EC",
-    borderLight: "#CFD8E6",
-    text:        "#172033",
-    textSub:     "#334155",
-    muted:       "#647084",
+    border:      "#FAD9DD",   // Light pinkish border
+    borderLight: "#FCE8EB",
+    text:        "#2D3748",
+    textSub:     "#4A5568",
+    muted:       "#A0AEC0",
 
     // Focus ring
-    ring:        "rgba(229, 62, 62, 0.16)",
+    ring:        "rgba(226, 30, 66, 0.16)",
 
     // Status — success
-    successBg:     "#F0FDF4",
-    successBorder: "#BBF7D0",
-    successText:   "#15803D",
-    successBtn:    "#16A34A",
-    successBtnShadow: "rgba(22, 163, 74, 0.22)",
+    successBg:     "#E6F4EA",
+    successBorder: "#B7E1CD",
+    successText:   "#137333",
+    successBtn:    "#1E8E3E",
+    successBtnShadow: "rgba(30, 142, 62, 0.22)",
 
     // Status — warning
     warningBg:     "#FFFBEB",
@@ -38,25 +38,25 @@ export const theme = {
     warningText:   "#B45309",
 
     // Status — danger
-    dangerBg:     "#FEF2F2",
-    dangerBorder: "#FECACA",
-    dangerText:   "#B91C1C",
-    dangerBtn:    "#DC2626",
-    dangerBtnShadow: "rgba(220, 38, 38, 0.16)",
+    dangerBg:     "#FCE8E6",
+    dangerBorder: "#FAD2CF",
+    dangerText:   "#C5221F",
+    dangerBtn:    "#D93025",
+    dangerBtnShadow: "rgba(217, 48, 37, 0.16)",
 
     // Status — info
-    infoBg:     "#EFF6FF",
-    infoBorder: "#BFDBFE",
-    infoText:   "#1D4ED8",
+    infoBg:     "#E8F0FE",
+    infoBorder: "#D2E3FC",
+    infoText:   "#1A73E8",
 
     // Chat bubbles
-    bubbleOther: "#EEF3F8",
-    bubbleMine:  "#FFE9E6",
+    bubbleOther: "#F1F3F4",
+    bubbleMine:  "#FFF0F2",
 
     // Misc
     avatarBg:   "#FEE2E2",
     skeletonA:  "#E2E8F0",
-    skeletonB:  "#F1F5F9",
+    skeletonB:  "#FFF0F2",   // soft pink instead of gray
     softGray:   "#F8FAFC",
     slate:      "#64748B",
   },
@@ -123,14 +123,14 @@ export const theme = {
 
   // ── Border radii ─────────────────────────────────────────────────────────────
   radius: {
-    card:   8,    // 0.5rem
-    button: 7,    // 0.45rem
-    input:  7,    // 0.45rem
-    chip:   7,    // 0.45rem
-    tab:    9,    // 0.55rem
+    card:   20,    // highly rounded premium card corners
+    button: 999,   // pill buttons everywhere
+    input:  14,    // smooth text input corners
+    chip:   10,
+    tab:    999,
     pill:   999,
     badge:  999,
-    bubble: 10,   // 0.6rem
+    bubble: 16,
   },
 
   // ── Spacing scale ─────────────────────────────────────────────────────────────

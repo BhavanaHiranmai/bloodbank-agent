@@ -13,68 +13,95 @@ const generateToken = (id, role) => {
   });
 };
 
+const cleanEnvVal = (val) => {
+  if (!val) return "";
+  return String(val).replace(/^["']|["']$/g, "").trim();
+};
+
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || process.env.EMAIL_HOST,
-  port: Number(process.env.SMTP_PORT || process.env.EMAIL_PORT || 587),
-  secure: process.env.SMTP_SECURE === "true",
+  host: cleanEnvVal(process.env.SMTP_HOST || process.env.EMAIL_HOST),
+  port: Number(cleanEnvVal(process.env.SMTP_PORT || process.env.EMAIL_PORT) || 587),
+  secure: cleanEnvVal(process.env.SMTP_SECURE) === "true",
   family: 4,
-  connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT || 15000),
-  greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT || 10000),
-  socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT || 20000),
+  connectionTimeout: Number(cleanEnvVal(process.env.SMTP_CONNECTION_TIMEOUT) || 15000),
+  greetingTimeout: Number(cleanEnvVal(process.env.SMTP_GREETING_TIMEOUT) || 10000),
+  socketTimeout: Number(cleanEnvVal(process.env.SMTP_SOCKET_TIMEOUT) || 20000),
   auth: {
-    user: process.env.SMTP_USER || process.env.EMAIL_USER,
-    pass: process.env.SMTP_PASS || process.env.EMAIL_PASS,
+    user: cleanEnvVal(process.env.SMTP_USER || process.env.EMAIL_USER),
+    pass: cleanEnvVal(process.env.SMTP_PASS || process.env.EMAIL_PASS),
   },
 });
 
 const isEmailConfigured = () =>
-  process.env.EMAIL_ENABLED !== "false" &&
-  (Boolean(process.env.RESEND_API_KEY) ||
-    (Boolean(process.env.SMTP_HOST || process.env.EMAIL_HOST) &&
-      Boolean(process.env.SMTP_USER || process.env.EMAIL_USER) &&
-      Boolean(process.env.SMTP_PASS || process.env.EMAIL_PASS)));
+  cleanEnvVal(process.env.EMAIL_ENABLED) !== "false" &&
+  (Boolean(cleanEnvVal(process.env.RESEND_API_KEY)) ||
+    (Boolean(cleanEnvVal(process.env.SMTP_HOST || process.env.EMAIL_HOST)) &&
+      Boolean(cleanEnvVal(process.env.SMTP_USER || process.env.EMAIL_USER)) &&
+      Boolean(cleanEnvVal(process.env.SMTP_PASS || process.env.EMAIL_PASS))));
 
-const canExposeDevCode = () => process.env.NODE_ENV === "development";
+const isLocalRequest = (req) => {
+  const host = req?.headers?.host || "";
+  return (
+    host.includes("localhost") ||
+    host.includes("127.0.0.1") ||
+    host.startsWith("192.168.") ||
+    host.startsWith("10.")
+  );
+};
 
-const getEmailFrom = () => {
-  if (process.env.RESEND_API_KEY) {
-    return process.env.EMAIL_FROM || process.env.RESEND_FROM || "BloodLink <onboarding@resend.dev>";
+const canExposeDevCode = (req) => {
+  return !process.env.NODE_ENV || process.env.NODE_ENV === "development" || isLocalRequest(req);
+};
+
+const getEmailFrom = (method = "resend") => {
+  if (method === "resend") {
+    return cleanEnvVal(process.env.EMAIL_FROM || process.env.RESEND_FROM) || "BloodLink <onboarding@resend.dev>";
   }
 
   return (
-    process.env.EMAIL_FROM ||
-    process.env.SMTP_FROM ||
-    `"BloodLink" <${process.env.SMTP_USER || process.env.EMAIL_USER}>`
+    cleanEnvVal(process.env.SMTP_FROM || process.env.EMAIL_FROM) ||
+    `"BloodLink" <${cleanEnvVal(process.env.SMTP_USER || process.env.EMAIL_USER)}>`
   );
 };
 
 const sendEmail = async ({ to, subject, text, html }) => {
-  if (process.env.RESEND_API_KEY) {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: getEmailFrom(),
-        to: [to],
-        subject,
-        text,
-        html,
-      }),
-    });
+  if (!isEmailConfigured()) {
+    console.warn(`Email delivery skipped to ${to}. Email service is disabled or not configured.`);
+    return { success: false, message: "Email service not configured" };
+  }
 
-    if (!response.ok) {
+  const resendApiKey = cleanEnvVal(process.env.RESEND_API_KEY);
+
+  if (resendApiKey) {
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${resendApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: getEmailFrom("resend"),
+          to: [to],
+          subject,
+          text,
+          html,
+        }),
+      });
+
+      if (response.ok) {
+        return await response.json();
+      }
+
       const body = await response.text();
-      throw new Error(`Email API failed (${response.status}): ${body.slice(0, 300)}`);
+      console.warn(`Resend email delivery failed (${response.status}): ${body.slice(0, 300)}. Falling back to SMTP.`);
+    } catch (resendErr) {
+      console.warn("Resend email delivery error. Falling back to SMTP:", resendErr);
     }
-
-    return response.json();
   }
 
   return transporter.sendMail({
-    from: getEmailFrom(),
+    from: getEmailFrom("smtp"),
     to,
     subject,
     text,
@@ -521,3 +548,4 @@ exports.resetPassword = async (req, res) => {
 
 exports.generateToken = generateToken;
 exports.transporter = transporter;
+exports.sendEmail = sendEmail;
